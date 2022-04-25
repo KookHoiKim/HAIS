@@ -187,6 +187,11 @@ if __name__ == '__main__':
         else:
             print("Error: no data loader - " + data_name)
             exit(0)
+    elif cfg.dataset == 's3dis' and data_name == 's3dis':
+        import data.s3dis_inst
+        dataset = data.s3dis_inst.Dataset()
+        dataset.trainLoader()
+        dataset.valLoader()
     else:
         raise NotImplementedError("Not yet supported")
 

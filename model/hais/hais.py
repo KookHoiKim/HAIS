@@ -193,7 +193,7 @@ class HAIS(nn.Module):
         if self.pretrain_path is not None:
             pretrain_dict = torch.load(self.pretrain_path)
             for m in self.pretrain_module:
-                print("Load pretrained " + m + ": %d/%d" % utils.load_model_param(module_map[m], pretrain_dict, prefix=m))
+                print("Load pretrained " + m + ": %d/%d" % utils.load_model_param(module_map[m], pretrain_dict['net'], prefix=m))
 
 
     @staticmethod
@@ -254,7 +254,35 @@ class HAIS(nn.Module):
 
         return voxelization_feats, inp_map
 
-    def forward(self, input, input_map, coords, batch_idxs, batch_offsets, epoch, training_mode):
+    def forward_4_parts(self, x, input_map):
+        outs = []
+        for i in range(4):
+            inds = x.indices[:, 0] == i
+            feats = x.features[inds]
+            coords = x.indices[inds]
+            coords[:, 0] = 0
+            x_new = spconv.SparseConvTensor(indices=coords, features=feats, spatial_shape=x.spatial_shape, batch_size=1)
+            out = self.input_conv(x_new)
+            out = self.unet(out)
+            out = self.output_layer(out)
+            outs.append(out.features)
+        outs = torch.cat(outs, dim=0)
+        return outs[input_map.long()]
+
+    def merge_4_parts(self, x):
+        inds = torch.arange(x.size(0), device=x.device)
+        p1 = inds[::4]
+        p2 = inds[1::4]
+        p3 = inds[2::4]
+        p4 = inds[3::4]
+        ps = [p1, p2, p3, p4]
+        x_split = torch.split(x, [p.size(0) for p in ps])
+        x_new = torch.zeros_like(x)
+        for i, p in enumerate(ps):
+            x_new[p] = x_split[i]
+        return x_new
+
+    def forward(self, input, input_map, coords, batch_idxs, batch_offsets, epoch, training_mode, split=False):
         '''
         :param input_map: (N), int, cuda
         :param coords: (N, 3), float, cuda
@@ -262,10 +290,15 @@ class HAIS(nn.Module):
         :param batch_offsets: (B + 1), int, cuda
         '''
         ret = {}
-        output = self.input_conv(input)
-        output = self.unet(output)
-        output = self.output_layer(output)
-        output_feats = output.features[input_map.long()]
+        if split:
+            output_feats = self.forward_4_parts(input, input_map)
+            output_feats = self.merge_4_parts(output_feats)
+            coords = self.merge_4_parts(coords)
+        else:
+            output = self.input_conv(input)
+            output = self.unet(output)
+            output = self.output_layer(output)
+            output_feats = output.features[input_map.long()]
 
         # semantic segmentation
         semantic_scores = self.semantic_linear(output_feats)   # (N, nClass), float
@@ -280,10 +313,11 @@ class HAIS(nn.Module):
 
         if(epoch > self.prepare_epochs):
 
-            if self.cfg.dataset == 'scannetv2':
-                object_idxs = torch.nonzero(semantic_preds > 1).view(-1) # floor idx 0, wall idx 1
-            else:
-                raise Exception
+            # if self.cfg.dataset == 'scannetv2':
+            #     object_idxs = torch.nonzero(semantic_preds > 1).view(-1) # floor idx 0, wall idx 1
+            # else:
+            #     raise Exception
+            object_idxs = torch.nonzero(semantic_preds > 1).view(-1) # floor idx 0, wall idx 1
 
             # fliter out floor and wall
             batch_idxs_ = batch_idxs[object_idxs]
@@ -303,6 +337,21 @@ class HAIS(nn.Module):
             proposals_idx, proposals_offset = hais_ops.hierarchical_aggregation(
                 semantic_preds_cpu, (coords_ + pt_offsets_).cpu(), idx.cpu(), start_len.cpu(),
                 batch_idxs_.cpu(), training_mode, using_set_aggr)             
+            
+            # if proposals_idx.size(0) == 0:
+            #     radii_add = 0.01
+            #     while proposals_idx.size(0) == 0:
+            #         if radii_add >= 0.05: 
+            #             print('The error cannot be solved in this way.')
+            #             raise NotImplementedError
+            #         idx, start_len = hais_ops.ballquery_batch_p(coords_ + pt_offsets_, \
+            #             batch_idxs_, batch_offsets_, self.point_aggr_radius + radii_add, self.cluster_shift_meanActive)
+            #         proposals_idx, proposals_offset = hais_ops.hierarchical_aggregation(
+            #             semantic_preds_cpu, (coords_ + pt_offsets_).cpu(), idx.cpu(), start_len.cpu(),
+            #             batch_idxs_.cpu(), training_mode, using_set_aggr)             
+            #         radii_add += 0.01
+ 
+ 
 
             proposals_idx[:, 1] = object_idxs[proposals_idx[:, 1].long()].int()
     
@@ -366,9 +415,11 @@ def model_fn_decorator(test=False):
 
         voxel_feats = hais_ops.voxelization(feats, v2p_map, cfg.mode)  # (M, C), float, cuda
 
-        input_ = spconv.SparseConvTensor(voxel_feats, voxel_coords.int(), spatial_shape, cfg.batch_size)
+        input_ = spconv.SparseConvTensor(voxel_feats, voxel_coords.int(), spatial_shape, 4)
+        batch_idxs = torch.zeros_like(coords[:, 0].int())
 
-        ret = model(input_, p2v_map, coords_float, coords[:, 0].int(), batch_offsets, epoch, 'test')
+
+        ret = model(input_, p2v_map, coords_float, batch_idxs, batch_offsets, epoch, 'test', split=True)
         semantic_scores = ret['semantic_scores']  # (N, nClass) float32, cuda
         pt_offsets = ret['pt_offsets']            # (N, 3), float32, cuda
 

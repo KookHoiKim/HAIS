@@ -35,14 +35,18 @@ def init():
 def test(model, model_fn, data_name, epoch):
     logger.info('>>>>>>>>>>>>>>>> Start Evaluation >>>>>>>>>>>>>>>>')
 
-    if cfg.dataset == 'scannetv2':
-        if data_name == 'scannet':
-            from data.scannetv2_inst import Dataset
-            dataset = Dataset(test=True)
-            dataset.testLoader()
-        else:
-            print("Error: no data loader - " + data_name)
-            exit(0)
+    # if cfg.dataset == 'scannetv2':
+    #     if data_name == 'scannet':
+    #         from data.scannetv2_inst import Dataset
+    #         dataset = Dataset(test=True)
+    #         dataset.testLoader()
+    #     else:
+    #         print("Error: no data loader - " + data_name)
+    #         exit(0)
+    from data.s3dis_inst import Dataset
+    dataset = Dataset(test=True)
+    dataset.testLoader()
+    
     dataloader = dataset.test_data_loader
 
     with torch.no_grad():
@@ -51,7 +55,7 @@ def test(model, model_fn, data_name, epoch):
         total_end1 = 0.
         matches = {}
         for i, batch in enumerate(dataloader):
-
+ 
             # inference
             start1 = time.time()
             preds = model_fn(batch, model, epoch)
@@ -59,7 +63,7 @@ def test(model, model_fn, data_name, epoch):
 
             # decode results for evaluation
             N = batch['feats'].shape[0]
-            test_scene_name = dataset.test_file_names[int(batch['id'][0])].split('/')[-1][:12]
+            test_scene_name = dataset.test_file_names[int(batch['id'][0])].split('/')[-1].replace('_inst_nostuff.pth', '')
             semantic_scores = preds['semantic']  # (N, nClass=20) float32, cuda
             semantic_pred = semantic_scores.max(1)[1]  # (N) long, cuda
             pt_offsets = preds['pt_offsets']    # (N, 3), float32, cuda
