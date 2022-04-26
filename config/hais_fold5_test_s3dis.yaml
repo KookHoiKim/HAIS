@@ -48,7 +48,7 @@ TRAIN:
   score_scale: 50 # the minimal voxel size is 2cm
   score_fullscale: 20  
   score_mode: 4 # mean
-  pretrain_path: './exp/s3dis/hais/hais_fold5_default_s3dis/hais_fold5_default_s3dis-000000001.pth'
+  pretrain_path: 
   pretrain_module: ['input_conv', 'unet', 'output_layer',
                       'semantic_linear', 'offset_linear',
                      'intra_ins_unet', 'intra_ins_outputlayer', 
@@ -56,8 +56,7 @@ TRAIN:
 
                             
 
-  fix_module: ['input_conv', 'unet', 'output_layer',
-                      'semantic_linear', 'offset_linear']
+  fix_module: [] 
 
 
   point_aggr_radius: 0.04

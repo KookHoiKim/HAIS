@@ -8,7 +8,7 @@ from util.config import cfg
 cfg.task = 'test'
 from util.log import logger
 import util.utils as utils
-import util.eval as eval
+import util.eval_s3dis as eval
 
 def init():
     global result_dir
@@ -22,7 +22,7 @@ def init():
     os.system('cp {} {}'.format(cfg.config, backup_dir))
 
     global semantic_label_idx
-    semantic_label_idx = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 24, 28, 33, 34, 36, 39]
+    semantic_label_idx = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
     logger.info(cfg)
 
@@ -58,7 +58,7 @@ def test(model, model_fn, data_name, epoch):
  
             # inference
             if i == 12:
-                print('{}th epoch has problem!'.format(i+1))
+                import pdb;pdb.set_trace()
                 continue
             start1 = time.time()
             preds = model_fn(batch, model, epoch)
@@ -183,7 +183,7 @@ def test(model, model_fn, data_name, epoch):
             avgs = eval.compute_averages(ap_scores)
             eval.print_results(avgs)
 
-        logger.info("whole set inference time: {:.2f}s, latency per frame: {:.2f}ms".format(total_end1, total_end1 / len(dataloader) * 1000))
+        logger.info("whole set inference time: {:.2f}s, latency per frame: {:.2f}ms".format(total_end1, total_end1 / (len(dataloader)-1) * 1000))
 
         # evaluate semantic segmantation accuracy and mIoU
         if cfg.split == 'val':
